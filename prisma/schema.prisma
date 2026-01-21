@@ -1,0 +1,214 @@
+// Prisma Schema for Global Water Solutions ERP
+// Database: PostgreSQL (Neon)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============================================
+// ENUMS
+// ============================================
+
+enum Role {
+  ADMIN
+  FINANCE
+  SUPPORT
+  TECHNICIAN
+}
+
+enum AMCStatus {
+  ACTIVE
+  EXPIRED
+  PENDING_PAYMENT
+}
+
+enum PaymentStatus {
+  PAID
+  PENDING
+  FAILED
+}
+
+enum ComplaintStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+}
+
+enum NotificationType {
+  AMC_RENEWAL
+  PAYMENT_DUE
+  COMPLAINT_UPDATE
+}
+
+enum FinanceType {
+  INCOME
+  EXPENSE
+}
+
+// ============================================
+// MODELS
+// ============================================
+
+// Better-auth required tables
+model user {
+  id            String   @id @default(uuid())
+  name          String
+  email         String   @unique
+  emailVerified Boolean  @default(false)
+  image         String?
+  role          Role     @default(SUPPORT)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  sessions Session[]
+  accounts Account[]
+
+  // Technician assignments
+  assignedComplaints Complaint[] @relation("TechnicianComplaints")
+}
+
+model Session {
+  id        String   @id @default(uuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user user @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Account {
+  id                    String    @id @default(uuid())
+  userId                String
+  accountId             String
+  providerId            String
+  accessToken           String?
+  refreshToken          String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  idToken               String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  user user @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Verification {
+  id         String   @id @default(uuid())
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+// ============================================
+// BUSINESS MODELS
+// ============================================
+
+model Customer {
+  id        String   @id @default(uuid())
+  name      String
+  address   String
+  phone     String
+  email     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  services      Service[]
+  amcs          AMCContract[]
+  payments      Payment[]
+  complaints    Complaint[]
+  notifications Notification[]
+}
+
+model Service {
+  id               String   @id @default(uuid())
+  customerId       String
+  serviceType      String
+  installationDate DateTime
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  customer     Customer      @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  complaints   Complaint[]
+  amcContracts AMCContract[]
+}
+
+model AMCContract {
+  id          String    @id @default(uuid())
+  customerId  String
+  serviceId   String
+  startDate   DateTime
+  endDate     DateTime
+  renewalDate DateTime
+  amount      Float
+  status      AMCStatus @default(ACTIVE)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  customer Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  service  Service   @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  payments Payment[]
+}
+
+model Payment {
+  id          String        @id @default(uuid())
+  customerId  String
+  amcId       String?
+  amount      Float
+  status      PaymentStatus @default(PENDING)
+  paymentMode String
+  paymentDate DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  customer   Customer     @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  amc        AMCContract? @relation(fields: [amcId], references: [id], onDelete: SetNull)
+  financeLog FinanceLog?
+}
+
+model Complaint {
+  id           String          @id @default(uuid())
+  customerId   String
+  serviceId    String
+  technicianId String?
+  description  String
+  status       ComplaintStatus @default(OPEN)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  service    Service  @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  technician user?    @relation("TechnicianComplaints", fields: [technicianId], references: [id], onDelete: SetNull)
+}
+
+model Notification {
+  id         String           @id @default(uuid())
+  customerId String
+  type       NotificationType
+  message    String
+  isRead     Boolean          @default(false)
+  createdAt  DateTime         @default(now())
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+}
+
+model FinanceLog {
+  id        String      @id @default(uuid())
+  type      FinanceType
+  paymentId String      @unique
+  amount    Float
+  createdAt DateTime    @default(now())
+
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+}
