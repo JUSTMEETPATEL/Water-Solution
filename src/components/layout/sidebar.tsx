@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import {
@@ -58,7 +58,13 @@ const navItems = [
 
 export function Sidebar() {
   const pathname = usePathname()
+  const router = useRouter()
   const { data: session } = useSession()
+
+  const handleLogout = async () => {
+    await signOut()
+    router.push('/sign-in')
+  }
 
   return (
     <aside className="fixed left-4 top-4 bottom-4 w-64 flex flex-col glass-card dark:border-white/10 rounded-3xl z-50 p-4 transition-all duration-300">
@@ -120,7 +126,7 @@ export function Sidebar() {
                 variant="ghost" 
                 size="icon" 
                 className="h-8 w-8 rounded-full hover:bg-destructive/10 hover:text-destructive"
-                onClick={() => signOut()}
+                onClick={handleLogout}
             >
               <LogOut className="h-4 w-4" />
             </Button>

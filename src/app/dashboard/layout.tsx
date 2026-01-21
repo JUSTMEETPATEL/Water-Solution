@@ -1,31 +1,37 @@
+import { headers } from "next/headers"
+import { redirect } from "next/navigation"
+import { auth } from "@/lib/auth"
 import { Sidebar } from "@/components/layout/sidebar"
 import { Header } from "@/components/layout/header"
 
-export default function DashboardLayout({
+export default async function DashboardLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
+  // Check authentication on the server
+  const session = await auth.api.getSession({
+    headers: await headers(),
+  })
+
+  // Redirect to sign-in if not authenticated
+  if (!session) {
+    redirect("/sign-in")
+  }
+
   return (
-    <div className="min-h-screen bg-background relative flex">
-       {/* Background Effects */}
-       <div className="fixed inset-0 pointer-events-none overflow-hidden">
-          <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-primary/5 rounded-full blur-[120px]" />
-          <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-chart-2/5 rounded-full blur-[120px]" />
-       </div>
+    <div className="min-h-screen bg-background">
+      {/* Background Gradient Effects */}
+      <div className="fixed inset-0 -z-10 overflow-hidden pointer-events-none">
+        <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-gradient-to-bl from-primary/5 via-chart-4/5 to-transparent rounded-full blur-3xl" />
+        <div className="absolute bottom-0 left-0 w-[500px] h-[500px] bg-gradient-to-tr from-chart-2/5 via-primary/3 to-transparent rounded-full blur-3xl" />
+      </div>
 
-       {/* Sidebar */}
-       <Sidebar />
-
-       {/* Main Content Area */}
-       <main className="flex-1 ml-[calc(1rem+16rem)] p-4 min-h-screen transition-all duration-300">
-         <div className="max-w-7xl mx-auto flex flex-col min-h-[calc(100vh-2rem)]">
-           <Header />
-           <div className="flex-1 animate-fade-in">
-             {children}
-           </div>
-         </div>
-       </main>
+      <Sidebar />
+      <main className="ml-72 min-h-screen">
+        <Header />
+        <div className="p-6">{children}</div>
+      </main>
     </div>
   )
 }

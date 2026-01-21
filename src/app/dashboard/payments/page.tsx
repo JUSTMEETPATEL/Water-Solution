@@ -1,180 +1,419 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Search, Filter, Download, Plus, ArrowUpRight, ArrowDownLeft, Wallet } from "lucide-react"
+import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
-import { Card } from "@/components/ui/card"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { DollarSign, TrendingUp, Clock, XCircle, Filter, Download, Plus } from "lucide-react"
 
-const payments = [
-  {
-    id: "PAY-001",
-    customer: "Rahul Sharma",
-    amount: 4500,
-    date: "12 Jan 2024",
-    status: "Paid",
-    method: "UPI",
-    ref: "UPI/34567890",
-  },
-  {
-    id: "PAY-002",
-    customer: "Priya Patel",
-    amount: 3200,
-    date: "14 Jan 2024",
-    status: "Pending",
-    method: "Cash",
-    ref: "-",
-  },
-  {
-    id: "PAY-003",
-    customer: "Amit Kumar",
-    amount: 12000,
-    date: "10 Jan 2024",
-    status: "Failed",
-    method: "Card",
-    ref: "TXN_FAILED_09",
-  },
-  {
-    id: "PAY-004",
-    customer: "Tech Solutions",
-    amount: 25000,
-    date: "01 Jan 2024",
-    status: "Paid",
-    method: "Bank Transfer",
-    ref: "NEFT-889977",
-  },
-   {
-    id: "PAY-005",
-    customer: "Sneha Gupta",
-    amount: 1500,
-    date: "15 Jan 2024",
-    status: "Paid",
-    method: "UPI",
-    ref: "UPI/123456",
-  },
-]
+type Payment = {
+  id: string
+  amount: number
+  status: 'PAID' | 'PENDING' | 'FAILED'
+  paymentMode: string
+  paymentDate: string | null
+  createdAt: string
+  customer: { id: string; name: string; phone: string }
+  amc?: { id: string; status: string }
+}
+
+type Customer = {
+  id: string
+  name: string
+}
 
 export default function PaymentsPage() {
+  const [payments, setPayments] = useState<Payment[]>([])
+  const [customers, setCustomers] = useState<Customer[]>([])
+  const [stats, setStats] = useState<{ totalRevenue: number; pendingAmount: number; failedAmount: number } | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [detailsOpen, setDetailsOpen] = useState(false)
+  const [selectedPayment, setSelectedPayment] = useState<Payment | null>(null)
+  const [formLoading, setFormLoading] = useState(false)
+  const [statusFilter, setStatusFilter] = useState<string>('all')
+
+  async function fetchPayments() {
+    try {
+      const [paymentsRes, statsRes] = await Promise.all([
+        fetch('/api/payments'),
+        fetch('/api/payments/stats')
+      ])
+      
+      if (paymentsRes.ok) {
+        const data = await paymentsRes.json()
+        setPayments(data.data || [])
+      }
+      
+      if (statsRes.ok) {
+        const data = await statsRes.json()
+        setStats(data)
+      }
+    } catch (error) {
+      console.error('Failed to fetch payments:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function fetchCustomers() {
+    try {
+      const res = await fetch('/api/customers')
+      if (res.ok) {
+        const data = await res.json()
+        setCustomers(data.data || [])
+      }
+    } catch (error) {
+      console.error('Failed to fetch customers:', error)
+    }
+  }
+
+  useEffect(() => {
+    fetchPayments()
+    fetchCustomers()
+  }, [])
+
+  async function handleRecordPayment(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    setFormLoading(true)
+
+    const formData = new FormData(e.currentTarget)
+    const data = {
+      customerId: formData.get('customerId') as string,
+      amount: parseFloat(formData.get('amount') as string),
+      paymentMode: formData.get('paymentMode') as string,
+      status: formData.get('status') as string,
+      paymentDate: formData.get('status') === 'PAID' ? new Date().toISOString() : null,
+    }
+
+    try {
+      const res = await fetch('/api/payments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      })
+
+      if (res.ok) {
+        setDialogOpen(false)
+        fetchPayments()
+      } else {
+        const error = await res.json()
+        alert(error.error || 'Failed to record payment')
+      }
+    } catch (error) {
+      console.error('Failed to record payment:', error)
+    } finally {
+      setFormLoading(false)
+    }
+  }
+
+  async function handleMarkAsPaid(paymentId: string) {
+    try {
+      const res = await fetch(`/api/payments/${paymentId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'PAID', paymentDate: new Date().toISOString() }),
+      })
+
+      if (res.ok) {
+        fetchPayments()
+        setDetailsOpen(false)
+      }
+    } catch (error) {
+      console.error('Failed to update payment:', error)
+    }
+  }
+
+  function handleExport() {
+    const csv = [
+      ['Transaction ID', 'Customer', 'Amount', 'Status', 'Method', 'Date'],
+      ...payments.map(p => [
+        p.id,
+        p.customer.name,
+        p.amount.toString(),
+        p.status,
+        p.paymentMode,
+        p.paymentDate ? new Date(p.paymentDate).toLocaleDateString() : '-'
+      ])
+    ].map(row => row.join(',')).join('\n')
+
+    const blob = new Blob([csv], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `payments-${new Date().toISOString().split('T')[0]}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const filteredPayments = statusFilter === 'all' 
+    ? payments 
+    : payments.filter(p => p.status === statusFilter)
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row justify-between gap-4">
         <div>
-           <h1 className="text-2xl font-bold tracking-tight text-foreground">Payments</h1>
-           <p className="text-muted-foreground">Track financial transactions and invoices.</p>
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">Payments</h1>
+          <p className="text-muted-foreground">Track transactions and financial records.</p>
         </div>
-        <Button className="rounded-full shadow-lg shadow-primary/20">
-          <Plus className="w-4 h-4 mr-2" /> Record Payment
-        </Button>
+        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+          <DialogTrigger asChild>
+            <Button className="rounded-full shadow-lg shadow-primary/20">
+              <Plus className="w-4 h-4 mr-2" /> Record Payment
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="rounded-2xl">
+            <DialogHeader>
+              <DialogTitle>Record New Payment</DialogTitle>
+            </DialogHeader>
+            <form onSubmit={handleRecordPayment} className="space-y-4 pt-4">
+              <div className="space-y-2">
+                <Label htmlFor="customerId">Customer *</Label>
+                <Select name="customerId" required>
+                  <SelectTrigger className="rounded-xl">
+                    <SelectValue placeholder="Select a customer" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {customers.map(customer => (
+                      <SelectItem key={customer.id} value={customer.id}>
+                        {customer.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="amount">Amount (₹) *</Label>
+                <Input id="amount" name="amount" type="number" placeholder="2500" required className="rounded-xl" />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="paymentMode">Payment Method *</Label>
+                  <Select name="paymentMode" required>
+                    <SelectTrigger className="rounded-xl">
+                      <SelectValue placeholder="Select method" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="CASH">Cash</SelectItem>
+                      <SelectItem value="UPI">UPI</SelectItem>
+                      <SelectItem value="CARD">Card</SelectItem>
+                      <SelectItem value="BANK_TRANSFER">Bank Transfer</SelectItem>
+                      <SelectItem value="CHEQUE">Cheque</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="status">Status *</Label>
+                  <Select name="status" required>
+                    <SelectTrigger className="rounded-xl">
+                      <SelectValue placeholder="Select status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="PAID">Paid</SelectItem>
+                      <SelectItem value="PENDING">Pending</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <Button type="submit" className="w-full rounded-xl" disabled={formLoading}>
+                {formLoading ? 'Recording...' : 'Record Payment'}
+              </Button>
+            </form>
+          </DialogContent>
+        </Dialog>
       </div>
 
-       {/* Quick Stats */}
-       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="bento-card p-5 bg-gradient-to-br from-primary to-primary/80 text-primary-foreground border-none">
-             <div className="flex justify-between items-start">
-                <div>
-                   <p className="text-primary-foreground/80 font-medium">Total Collected</p>
-                   <h3 className="text-3xl font-bold mt-1">₹8,42,000</h3>
-                </div>
-                <div className="p-2 bg-white/20 rounded-xl">
-                   <ArrowUpRight className="w-6 h-6 text-white" />
-                </div>
-             </div>
-             <div className="mt-4 text-sm text-primary-foreground/70 bg-white/10 inline-block px-2 py-1 rounded-lg">
-                +12.5% from last month
-             </div>
+      {/* Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="bento-card p-5 flex items-center gap-4">
+          <div className="w-12 h-12 rounded-2xl bg-green-100 flex items-center justify-center text-green-600">
+            <TrendingUp className="w-6 h-6" />
           </div>
-
-          <div className="bento-card p-5">
-             <div className="flex justify-between items-start">
-                <div>
-                   <p className="text-muted-foreground font-medium">Pending</p>
-                   <h3 className="text-3xl font-bold mt-1 text-orange-600">₹45,200</h3>
-                </div>
-                 <div className="p-2 bg-orange-100 rounded-xl">
-                   <Wallet className="w-6 h-6 text-orange-600" />
-                </div>
-             </div>
-              <p className="text-sm text-muted-foreground mt-4">12 invoices pending</p>
+          <div>
+            <p className="text-sm text-muted-foreground">Total Collected</p>
+            <p className="text-2xl font-bold">₹{loading ? '...' : (stats?.totalRevenue || 0).toLocaleString()}</p>
           </div>
-
-          <div className="bento-card p-5">
-             <div className="flex justify-between items-start">
-                <div>
-                   <p className="text-muted-foreground font-medium">Failed</p>
-                   <h3 className="text-3xl font-bold mt-1 text-red-600">₹12,000</h3>
-                </div>
-                 <div className="p-2 bg-red-100 rounded-xl">
-                   <ArrowDownLeft className="w-6 h-6 text-red-600" />
-                </div>
-             </div>
-              <p className="text-sm text-muted-foreground mt-4">Action required on 3 items</p>
+        </div>
+        <div className="bento-card p-5 flex items-center gap-4">
+          <div className="w-12 h-12 rounded-2xl bg-orange-100 flex items-center justify-center text-orange-600">
+            <Clock className="w-6 h-6" />
           </div>
-       </div>
-
-      {/* Filters */}
-      <div className="flex flex-col md:flex-row gap-4 items-center justify-between bento-card p-4">
-          <div className="relative w-full md:w-96">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input 
-              placeholder="Search by ID, customer..." 
-              className="pl-9 rounded-xl bg-secondary/50 border-transparent focus:bg-background transition-all"
-            />
+          <div>
+            <p className="text-sm text-muted-foreground">Pending</p>
+            <p className="text-2xl font-bold">₹{loading ? '...' : (stats?.pendingAmount || 0).toLocaleString()}</p>
           </div>
-          <div className="flex items-center gap-2">
-             <Button variant="outline" className="rounded-xl border-dashed">
-                <Filter className="w-4 h-4 mr-2" /> Filter
-             </Button>
-              <Button variant="outline" className="rounded-xl border-dashed">
-                <Download className="w-4 h-4 mr-2" /> Export
-             </Button>
+        </div>
+        <div className="bento-card p-5 flex items-center gap-4">
+          <div className="w-12 h-12 rounded-2xl bg-red-100 flex items-center justify-center text-red-600">
+            <XCircle className="w-6 h-6" />
           </div>
+          <div>
+            <p className="text-sm text-muted-foreground">Failed</p>
+            <p className="text-2xl font-bold">₹{loading ? '...' : (stats?.failedAmount || 0).toLocaleString()}</p>
+          </div>
+        </div>
       </div>
 
-       {/* Transactions List */}
-       <div className="bento-card overflow-hidden">
-         <div className="overflow-x-auto">
-            <table className="w-full text-sm text-left">
-               <thead className="bg-secondary/30 text-muted-foreground font-medium border-b border-border/50">
-                  <tr>
-                     <th className="px-6 py-4">Transaction ID</th>
-                     <th className="px-6 py-4">Customer</th>
-                     <th className="px-6 py-4">Date</th>
-                     <th className="px-6 py-4">Method</th>
-                     <th className="px-6 py-4">Status</th>
-                     <th className="px-6 py-4 text-right">Amount</th>
-                  </tr>
-               </thead>
-               <tbody className="divide-y divide-border/50">
-                  {payments.map((pay) => (
-                    <tr key={pay.id} className="group hover:bg-secondary/20 transition-colors cursor-pointer">
-                       <td className="px-6 py-4 font-medium text-foreground">{pay.id}</td>
-                       <td className="px-6 py-4">
-                          <div className="font-medium">{pay.customer}</div>
-                          <div className="text-xs text-muted-foreground">{pay.ref}</div>
-                       </td>
-                       <td className="px-6 py-4 text-muted-foreground">{pay.date}</td>
-                       <td className="px-6 py-4">{pay.method}</td>
-                       <td className="px-6 py-4">
-                           <Badge 
-                            variant="outline" 
-                            className={`rounded-full border-0 font-medium ${
-                                pay.status === 'Paid' ? 'bg-green-100 text-green-700' :
-                                pay.status === 'Pending' ? 'bg-orange-100 text-orange-700' :
-                                'bg-red-100 text-red-700'
-                            }`}
-                          >
-                             {pay.status}
-                          </Badge>
-                       </td>
-                       <td className="px-6 py-4 text-right font-bold">
-                          ₹{pay.amount.toLocaleString()}
-                       </td>
-                    </tr>
-                  ))}
-               </tbody>
-            </table>
-         </div>
-       </div>
+      {/* Transactions Table */}
+      <div className="bento-card overflow-hidden">
+        <div className="p-4 border-b border-border/50 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <h3 className="font-semibold">Recent Transactions</h3>
+          <div className="flex gap-2">
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-[130px] rounded-full h-9">
+                <Filter className="w-4 h-4 mr-2" />
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All</SelectItem>
+                <SelectItem value="PAID">Paid</SelectItem>
+                <SelectItem value="PENDING">Pending</SelectItem>
+                <SelectItem value="FAILED">Failed</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button variant="outline" size="sm" className="rounded-full" onClick={handleExport}>
+              <Download className="w-4 h-4 mr-2" /> Export
+            </Button>
+          </div>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border/50 bg-secondary/30">
+                <th className="text-left p-4 font-semibold text-muted-foreground">Transaction ID</th>
+                <th className="text-left p-4 font-semibold text-muted-foreground">Customer</th>
+                <th className="text-left p-4 font-semibold text-muted-foreground hidden md:table-cell">Date</th>
+                <th className="text-left p-4 font-semibold text-muted-foreground hidden md:table-cell">Method</th>
+                <th className="text-left p-4 font-semibold text-muted-foreground">Status</th>
+                <th className="text-right p-4 font-semibold text-muted-foreground">Amount</th>
+                <th className="text-right p-4 font-semibold text-muted-foreground">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr>
+                  <td colSpan={7} className="text-center p-8 text-muted-foreground">Loading payments...</td>
+                </tr>
+              ) : filteredPayments.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="text-center p-8 text-muted-foreground">No payments found</td>
+                </tr>
+              ) : filteredPayments.map((payment) => (
+                <tr key={payment.id} className="border-b border-border/30 hover:bg-secondary/30 transition-colors">
+                  <td className="p-4">
+                    <p className="font-mono text-xs">{payment.id.slice(0, 8).toUpperCase()}</p>
+                  </td>
+                  <td className="p-4">
+                    <p className="font-medium">{payment.customer.name}</p>
+                  </td>
+                  <td className="p-4 hidden md:table-cell text-muted-foreground">
+                    {payment.paymentDate ? new Date(payment.paymentDate).toLocaleDateString() : '-'}
+                  </td>
+                  <td className="p-4 hidden md:table-cell text-muted-foreground">{payment.paymentMode}</td>
+                  <td className="p-4">
+                    <Badge className={
+                      payment.status === 'PAID' ? 'bg-green-100 text-green-700' :
+                      payment.status === 'PENDING' ? 'bg-orange-100 text-orange-700' :
+                      'bg-red-100 text-red-700'
+                    }>
+                      {payment.status}
+                    </Badge>
+                  </td>
+                  <td className="p-4 text-right font-semibold">
+                    ₹{payment.amount.toLocaleString()}
+                  </td>
+                  <td className="p-4 text-right">
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      className="rounded-full"
+                      onClick={() => {
+                        setSelectedPayment(payment)
+                        setDetailsOpen(true)
+                      }}
+                    >
+                      View
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Payment Details Dialog */}
+      <Dialog open={detailsOpen} onOpenChange={setDetailsOpen}>
+        <DialogContent className="rounded-2xl max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Payment Details</DialogTitle>
+          </DialogHeader>
+          {selectedPayment && (
+            <div className="space-y-4 pt-4">
+              <div className="p-4 bg-secondary/50 rounded-xl text-center">
+                <p className="text-3xl font-bold text-primary">₹{selectedPayment.amount.toLocaleString()}</p>
+                <Badge className={
+                  selectedPayment.status === 'PAID' ? 'bg-green-100 text-green-700 mt-2' :
+                  selectedPayment.status === 'PENDING' ? 'bg-orange-100 text-orange-700 mt-2' :
+                  'bg-red-100 text-red-700 mt-2'
+                }>
+                  {selectedPayment.status}
+                </Badge>
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Customer</span>
+                  <span className="font-medium">{selectedPayment.customer.name}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Method</span>
+                  <span className="font-medium">{selectedPayment.paymentMode}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Date</span>
+                  <span className="font-medium">
+                    {selectedPayment.paymentDate ? new Date(selectedPayment.paymentDate).toLocaleDateString() : 'Not paid yet'}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Transaction ID</span>
+                  <span className="font-mono text-xs">{selectedPayment.id.slice(0, 12)}</span>
+                </div>
+              </div>
+
+              {selectedPayment.status === 'PENDING' && (
+                <Button 
+                  className="w-full rounded-xl" 
+                  onClick={() => handleMarkAsPaid(selectedPayment.id)}
+                >
+                  Mark as Paid
+                </Button>
+              )}
+              
+              <Button variant="outline" className="w-full rounded-xl" onClick={() => setDetailsOpen(false)}>
+                Close
+              </Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
